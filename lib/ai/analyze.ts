@@ -71,6 +71,7 @@ export async function analyzeImageFromStorage(params: {
                 "If face_count is not exactly 1, explain in the JSON fields as best you can and set safety flags accurately.",
                 "Do not identify a real person or infer sensitive personal identity.",
                 "Estimate only visible creative attributes for generating a compatible fictional adult partner.",
+                "For presentation, describe only visible presentation cues using labels such as masculine-presenting, feminine-presenting, androgynous, or neutral.",
               ].join(" "),
             },
             {

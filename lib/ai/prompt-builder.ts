@@ -2,12 +2,32 @@ import type { CoupleScene, StyleProfile } from "@/lib/types";
 
 const renderPalette = (colors: string[]) => colors.join(", ");
 
+function getContrastingPresentation(presentation: string) {
+  const normalized = presentation.toLowerCase();
+
+  if (normalized.includes("masculine")) {
+    return "feminine-presenting";
+  }
+
+  if (normalized.includes("feminine")) {
+    return "masculine-presenting";
+  }
+
+  if (normalized.includes("androgynous")) {
+    return "softly masculine-presenting";
+  }
+
+  return "visibly contrasting but realistic adult presentation";
+}
+
 export function buildSimilarPrompt(profile: StyleProfile) {
+  const targetPresentation = getContrastingPresentation(profile.presentation);
+
   return [
     "Create a photorealistic adult partner portrait for a dating-style prototype.",
     "Make the person feel aesthetically compatible with the uploaded user without copying the user's identity or face.",
     `Keep age band aligned with ${profile.age_range}.`,
-    `Presentation should feel ${profile.presentation}.`,
+    `Use a ${targetPresentation} look that still feels compatible with the uploaded user's ${profile.presentation} styling cues.`,
     `Style direction: ${profile.style}.`,
     `Clothing: ${profile.clothing_type}.`,
     `Color palette: ${renderPalette(profile.color_palette)}.`,
@@ -19,11 +39,13 @@ export function buildSimilarPrompt(profile: StyleProfile) {
 }
 
 export function buildComplementaryPrompt(profile: StyleProfile) {
+  const targetPresentation = getContrastingPresentation(profile.presentation);
+
   return [
     "Create a photorealistic adult partner portrait for a dating-style prototype.",
     "Make the person complementary rather than similar, while still visually believable as a match.",
     `Keep age band aligned with ${profile.age_range}.`,
-    `Use a contrasting but compatible presentation to ${profile.presentation}.`,
+    `Use a ${targetPresentation} look with clear contrast to the uploaded user's ${profile.presentation} cues.`,
     `Fashion should feel one step more dynamic than ${profile.style}.`,
     `Clothing should complement ${profile.clothing_type}.`,
     `Use accents that work with ${renderPalette(profile.color_palette)}.`,
@@ -34,10 +56,13 @@ export function buildComplementaryPrompt(profile: StyleProfile) {
 }
 
 export function buildDreamPrompt(profile: StyleProfile) {
+  const targetPresentation = getContrastingPresentation(profile.presentation);
+
   return [
     "Create a photorealistic adult dream partner portrait for a dating-style prototype.",
     "The partner should feel aspirational, cinematic, and highly compatible without resembling the uploaded user.",
     `Keep age band aligned with ${profile.age_range}.`,
+    `Use a polished ${targetPresentation} look that feels like an ideal counterpart to the uploaded user's ${profile.presentation} presentation.`,
     `Elevate style from ${profile.style} into a premium editorial version.`,
     `Wardrobe inspiration should still coordinate with ${profile.clothing_type}.`,
     `Use a polished palette influenced by ${renderPalette(profile.color_palette)}.`,
