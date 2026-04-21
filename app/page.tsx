@@ -761,6 +761,26 @@ export default function App() {
                   </p>
                 </div>
 
+                {selectedMatch ? (
+                  <div className="flex items-center gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                    <div className="h-14 w-14 overflow-hidden rounded-xl border border-slate-700 shrink-0">
+                      <img
+                        src={selectedMatch.imageUrl}
+                        alt={selectedMatch.title}
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-white">
+                        Using selected partner
+                      </p>
+                      <p className="truncate text-xs text-slate-400">
+                        {selectedMatch.title} · {selectedMatch.tag}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
                 <SceneSelector
                   selected={selectedScene}
                   onSelect={(scene) => setSelectedScene(scene)}

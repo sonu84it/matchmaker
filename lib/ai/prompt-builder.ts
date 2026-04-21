@@ -79,7 +79,9 @@ export function buildCouplePrompt(params: {
 }) {
   return [
     "Create a photorealistic couple portrait for a fictional matchmaking prototype.",
-    "Show one adult inspired by the uploaded user's fashion profile and one adult partner matching the selected result.",
+    "Show one adult inspired by the uploaded user's fashion profile and one adult partner matching the exact selected partner portrait.",
+    "The selected partner must stay visually consistent with the chosen partner reference image, including face shape, hairstyle, expression energy, and overall styling level.",
+    "Do not replace the selected partner with a different-looking person.",
     `Selected partner vibe: ${params.partnerTag}.`,
     `User profile style: ${params.profile.style}.`,
     `User clothing reference: ${params.profile.clothing_type}.`,

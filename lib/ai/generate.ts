@@ -158,10 +158,12 @@ export async function generateCoupleImage(params: {
             {
               text: [
                 "Create one photorealistic couple portrait.",
-                "Use the first image as the face and styling anchor for person one.",
-                "Use the second image as the face and styling anchor for person two.",
+                "Use the first image as the exact face and styling anchor for person one.",
+                "Use the second image as the exact face and styling anchor for person two.",
                 "Preserve each person's identity as closely as possible.",
+                "Match person two closely to the selected partner reference image.",
                 "Do not invent new faces if the source faces are visible.",
+                "Do not swap, merge, or replace either person with a different-looking adult.",
                 "Show both adults together in a single coherent scene.",
                 prompt,
               ].join(" "),
@@ -182,8 +184,8 @@ export async function generateCoupleImage(params: {
         },
       ],
       generationConfig: {
-        temperature: 0.7,
-        responseModalities: ["TEXT", "IMAGE"],
+        temperature: 0.3,
+        responseModalities: ["IMAGE"],
         candidateCount: 1,
       },
     },
