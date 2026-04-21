@@ -1,5 +1,5 @@
 import { env } from "@/lib/config";
-import { uploadBufferToGcs, createSignedReadUrl } from "@/lib/gcs";
+import { uploadBufferToGcs, createSignedReadUrl, readFileAsBase64 } from "@/lib/gcs";
 import { buildComplementaryPrompt, buildCouplePrompt, buildDreamPrompt, buildSimilarPrompt } from "@/lib/ai/prompt-builder";
 import { vertexRequest } from "@/lib/ai/vertex";
 import { makeId } from "@/lib/utils";
@@ -9,6 +9,20 @@ type ImagenPredictResponse = {
   predictions?: Array<{
     bytesBase64Encoded?: string;
     mimeType?: string;
+  }>;
+};
+
+type GeminiImageResponse = {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+        inlineData?: {
+          mimeType?: string;
+          data?: string;
+        };
+      }>;
+    };
   }>;
 };
 
@@ -106,6 +120,14 @@ export async function generateCoupleImage(params: {
   partnerTag: string;
   scene: CoupleScene;
   profile: StyleProfile;
+  originalImage: {
+    storagePath: string;
+    mimeType: string;
+  };
+  partnerImage: {
+    storagePath: string;
+    mimeType: string;
+  };
 }) {
   const prompt = buildCouplePrompt({
     profile: params.profile,
@@ -113,7 +135,60 @@ export async function generateCoupleImage(params: {
     scene: params.scene,
   });
   const generationId = makeId("couple");
-  const image = await generateImage(prompt);
+  const originalBase64 = await readFileAsBase64(params.originalImage.storagePath);
+  const partnerBase64 = await readFileAsBase64(params.partnerImage.storagePath);
+  const response = await vertexRequest<GeminiImageResponse>(
+    `/publishers/google/models/${env.coupleImageModel}:generateContent`,
+    {
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: [
+                "Create one photorealistic couple portrait.",
+                "Use the first image as the face and styling anchor for person one.",
+                "Use the second image as the face and styling anchor for person two.",
+                "Preserve each person's identity as closely as possible.",
+                "Do not invent new faces if the source faces are visible.",
+                "Show both adults together in a single coherent scene.",
+                prompt,
+              ].join(" "),
+            },
+            {
+              inlineData: {
+                mimeType: params.originalImage.mimeType,
+                data: originalBase64,
+              },
+            },
+            {
+              inlineData: {
+                mimeType: params.partnerImage.mimeType,
+                data: partnerBase64,
+              },
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.7,
+        responseModalities: ["TEXT", "IMAGE"],
+        candidateCount: 1,
+      },
+    },
+  );
+
+  const parts = response.candidates?.[0]?.content?.parts ?? [];
+  const imagePart = parts.find((part) => part.inlineData?.data);
+
+  if (!imagePart?.inlineData?.data) {
+    throw new Error("Gemini couple generation returned no image.");
+  }
+
+  const image = {
+    buffer: Buffer.from(imagePart.inlineData.data, "base64"),
+    mimeType: imagePart.inlineData.mimeType ?? "image/png",
+  };
   const stored = await persistGeneratedImage({
     sessionId: params.sessionId,
     generationId,

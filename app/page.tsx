@@ -1,16 +1,33 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ProgressLoader } from "@/components/ProgressLoader";
+import {
+  UploadCloud,
+  Wand2,
+  Sparkles,
+  Zap,
+  Image as ImageIcon,
+  Heart,
+  Camera,
+  ArrowRight,
+  Info,
+  CheckCircle2,
+  Lock,
+} from "lucide-react";
 import { SceneSelector } from "@/components/SceneSelector";
 import { Toast } from "@/components/Toast";
-import { UploadDropzone } from "@/components/UploadDropzone";
 import { makeId } from "@/lib/utils";
-import type { CoupleScene, MatchCard, MatchKind, StyleProfile } from "@/lib/types";
+import type {
+  CoupleScene,
+  MatchCard,
+  MatchKind,
+  StyleProfile,
+} from "@/lib/types";
 
 const MAX_CLIENT_GENERATIONS = 5;
+const MATCH_ORDER: MatchKind[] = ["similar", "complementary", "dream"];
 
-type AppStage = "idle" | "ready" | "processing" | "results" | "couple";
+type AppStep = "upload" | "analyzing" | "results";
 
 type SessionPayload = {
   usageCount: number;
@@ -23,60 +40,61 @@ type GeneratePayload = {
   remainingGenerations: number;
 };
 
-const MATCH_ORDER: MatchKind[] = ["similar", "complementary", "dream"];
-
 const MATCH_COPY: Record<
   MatchKind,
-  { title: string; description: string; badge: string }
+  { title: string; subtitle: string; color: "blue" | "fuchsia" | "amber" }
 > = {
   similar: {
     title: "Similar Match",
-    description: "Closest to your existing aesthetic, styling pace, and visual mood.",
-    badge: "Closest vibe",
+    subtitle: "Closest vibe & style",
+    color: "blue",
   },
   complementary: {
-    title: "Complementary Match",
-    description: "Same overall compatibility, but with a little more contrast and spark.",
-    badge: "Balanced contrast",
+    title: "Complementary",
+    subtitle: "Balanced contrast",
+    color: "fuchsia",
   },
   dream: {
     title: "Dream Match",
-    description: "A more cinematic, elevated take on your best visual pairing.",
-    badge: "Aspirational",
+    subtitle: "Aspirational & elevated",
+    color: "amber",
   },
 };
 
-const featurePills = [
-  "No login",
-  "One portrait",
-  "Analyze once",
-  "Generate matches one at a time",
+const sceneLabels: CoupleScene[] = [
+  "Cafe Date",
+  "Travel",
+  "Studio Portrait",
+  "Festive",
+  "Sunset Walk",
+  "Weekend Brunch",
 ];
 
-const signalRows = [
-  { label: "Reads", value: "Style, mood, palette, lighting" },
-  { label: "Creates", value: "One match direction per request" },
-  { label: "Quota-aware", value: "Designed for current Vertex image limits" },
-];
-
-export default function HomePage() {
+export default function App() {
+  const [step, setStep] = useState<AppStep>("upload");
+  const [credits, setCredits] = useState(MAX_CLIENT_GENERATIONS);
   const [sessionId, setSessionId] = useState("");
   const [usageCount, setUsageCount] = useState(0);
-  const [stage, setStage] = useState<AppStage>("idle");
-  const [currentStep, setCurrentStep] = useState(0);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [userImage, setUserImage] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [uploadId, setUploadId] = useState<string | null>(null);
   const [profile, setProfile] = useState<StyleProfile | null>(null);
-  const [matches, setMatches] = useState<Partial<Record<MatchKind, MatchCard>>>({});
-  const [selectedMatch, setSelectedMatch] = useState<MatchCard | null>(null);
+  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
   const [selectedScene, setSelectedScene] = useState<CoupleScene>("Cafe Date");
   const [coupleImageUrl, setCoupleImageUrl] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [busyKind, setBusyKind] = useState<MatchKind | "analyze" | "couple" | null>(
-    null,
+  const [matches, setMatches] = useState<
+    Record<MatchKind, { status: "idle" | "generating" | "complete"; url: string | null; card?: MatchCard }>
+  >({
+    similar: { status: "idle", url: null },
+    complementary: { status: "idle", url: null },
+    dream: { status: "idle", url: null },
+  });
+  const [coupleStatus, setCoupleStatus] = useState<"idle" | "generating" | "complete">(
+    "idle",
   );
-  const [sessionReady, setSessionReady] = useState(false);
 
   useEffect(() => {
     const savedSessionId =
@@ -104,12 +122,11 @@ export default function HomePage() {
 
         if (!active) return;
         setUsageCount(data.usageCount);
-        window.localStorage.setItem("pairmuse.usageCount", String(data.usageCount));
       } catch {
+        if (!active) return;
         const fallbackUsage = Number(
           window.localStorage.getItem("pairmuse.usageCount") ?? "0",
         );
-        if (!active) return;
         setUsageCount(fallbackUsage);
       } finally {
         if (active) setSessionReady(true);
@@ -124,6 +141,11 @@ export default function HomePage() {
   }, [sessionId]);
 
   useEffect(() => {
+    setCredits(Math.max(0, MAX_CLIENT_GENERATIONS - usageCount));
+    window.localStorage.setItem("pairmuse.usageCount", String(usageCount));
+  }, [usageCount]);
+
+  useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(null), 3400);
     return () => window.clearTimeout(timer);
@@ -131,47 +153,92 @@ export default function HomePage() {
 
   useEffect(() => {
     return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      if (userImage?.startsWith("blob:")) {
+        URL.revokeObjectURL(userImage);
+      }
     };
-  }, [previewUrl]);
+  }, [userImage]);
 
-  const remaining = useMemo(
-    () => Math.max(0, MAX_CLIENT_GENERATIONS - usageCount),
-    [usageCount],
-  );
-
-  const generatedMatches = useMemo(
+  const selectedMatch = useMemo(
     () =>
-      MATCH_ORDER.map((kind) => matches[kind]).filter(Boolean) as MatchCard[],
-    [matches],
+      MATCH_ORDER.map((kind) => matches[kind].card).find(
+        (card) => card?.id === selectedMatchId,
+      ) ?? null,
+    [matches, selectedMatchId],
   );
 
-  const setUsage = (value: number) => {
-    setUsageCount(value);
-    window.localStorage.setItem("pairmuse.usageCount", String(value));
+  const hasBusyState =
+    step === "analyzing" ||
+    MATCH_ORDER.some((kind) => matches[kind].status === "generating") ||
+    coupleStatus === "generating";
+
+  const setUsage = (remainingGenerations: number) => {
+    setUsageCount(MAX_CLIENT_GENERATIONS - remainingGenerations);
   };
 
-  const onFileSelect = (nextFile: File) => {
+  const resetApp = () => {
+    if (userImage?.startsWith("blob:")) {
+      URL.revokeObjectURL(userImage);
+    }
+    setStep("upload");
+    setUserImage(null);
+    setFile(null);
+    setUploadId(null);
+    setProfile(null);
+    setSelectedMatchId(null);
+    setCoupleImageUrl(null);
+    setCoupleStatus("idle");
+    setMatches({
+      similar: { status: "idle", url: null },
+      complementary: { status: "idle", url: null },
+      dream: { status: "idle", url: null },
+    });
+  };
+
+  const onFilePicked = (nextFile: File) => {
     if (nextFile.size > 10 * 1024 * 1024) {
       setToast("Please upload an image under 10MB.");
       return;
     }
 
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
+    if (userImage?.startsWith("blob:")) {
+      URL.revokeObjectURL(userImage);
     }
 
     setFile(nextFile);
-    setPreviewUrl(URL.createObjectURL(nextFile));
-    setStage("ready");
+    setUserImage(URL.createObjectURL(nextFile));
     setUploadId(null);
     setProfile(null);
-    setMatches({});
-    setSelectedMatch(null);
+    setSelectedMatchId(null);
     setCoupleImageUrl(null);
+    setCoupleStatus("idle");
+    setMatches({
+      similar: { status: "idle", url: null },
+      complementary: { status: "idle", url: null },
+      dream: { status: "idle", url: null },
+    });
   };
 
-  const ensureAnalyzed = async (showAnalyzeBusy = true) => {
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const droppedFile = e.dataTransfer.files?.[0];
+    if (droppedFile) {
+      onFilePicked(droppedFile);
+    }
+  };
+
+  const ensureAnalyzed = async () => {
     if (!file || !sessionId) {
       throw new Error("Please upload a photo first.");
     }
@@ -180,11 +247,7 @@ export default function HomePage() {
       return { uploadId, profile };
     }
 
-    if (showAnalyzeBusy) {
-      setBusyKind("analyze");
-    }
-    setStage("processing");
-    setCurrentStep(0);
+    setStep("analyzing");
 
     const uploadForm = new FormData();
     uploadForm.append("file", file);
@@ -199,7 +262,6 @@ export default function HomePage() {
     const uploadData = await uploadRes.json();
     if (!uploadRes.ok) throw new Error(uploadData.error ?? "Upload failed.");
 
-    setCurrentStep(1);
     setUploadId(uploadData.uploadId);
 
     const analyzeRes = await fetch("/api/analyze", {
@@ -213,9 +275,8 @@ export default function HomePage() {
     const analyzeData = await analyzeRes.json();
     if (!analyzeRes.ok) throw new Error(analyzeData.error ?? "Analysis failed.");
 
-    setCurrentStep(2);
     setProfile(analyzeData.profile);
-    setStage("results");
+    setStep("results");
 
     return {
       uploadId: uploadData.uploadId as string,
@@ -223,34 +284,32 @@ export default function HomePage() {
     };
   };
 
-  const runAnalyzeFlow = async () => {
+  const startAnalysis = async () => {
     try {
-      await ensureAnalyzed(true);
+      await ensureAnalyzed();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Something went wrong.";
       setToast(message);
-      setStage(file ? "ready" : "idle");
-    } finally {
-      setBusyKind(null);
+      setStep(userImage ? "upload" : "upload");
     }
   };
 
-  const generateMatch = async (kind: MatchKind) => {
-    if (!sessionId) return;
-    if (remaining <= 0) {
+  const generateMatch = async (type: MatchKind) => {
+    if (credits <= 0) {
       setToast("This session has reached its prototype generation limit.");
       return;
     }
 
-    setBusyKind(kind);
+    setMatches((prev) => ({
+      ...prev,
+      [type]: { ...prev[type], status: "generating", url: prev[type].url },
+    }));
 
     try {
-      const analyzed = await ensureAnalyzed(false);
-      setStage("processing");
-      setCurrentStep(3);
+      const analyzed = await ensureAnalyzed();
 
-      const generateRes = await fetch("/api/generate", {
+      const response = await fetch("/api/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -258,44 +317,50 @@ export default function HomePage() {
         },
         body: JSON.stringify({
           uploadId: analyzed.uploadId,
-          kind,
+          kind: type,
         }),
       });
-      const generateData = (await generateRes.json()) as GeneratePayload & {
-        error?: string;
-      };
-      if (!generateRes.ok) {
-        throw new Error(generateData.error ?? "Generation failed.");
+
+      const data = (await response.json()) as GeneratePayload & { error?: string };
+      if (!response.ok) {
+        throw new Error(data.error ?? "Match generation failed.");
       }
 
-      setMatches((current) => ({
-        ...current,
-        [kind]: generateData.match,
+      setMatches((prev) => ({
+        ...prev,
+        [type]: {
+          status: "complete",
+          url: data.match.imageUrl,
+          card: data.match,
+        },
       }));
-      setProfile(generateData.profile);
-      setUsage(MAX_CLIENT_GENERATIONS - generateData.remainingGenerations);
-      setStage("results");
+      setProfile(data.profile);
+      setUsage(data.remainingGenerations);
+      setStep("results");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Something went wrong.";
       setToast(message);
-      setStage(profile ? "results" : file ? "ready" : "idle");
-    } finally {
-      setBusyKind(null);
+      setMatches((prev) => ({
+        ...prev,
+        [type]: { ...prev[type], status: prev[type].url ? "complete" : "idle" },
+      }));
+      setStep(profile ? "results" : "upload");
     }
   };
 
-  const runCoupleFlow = async () => {
-    if (!selectedMatch || !profile || !uploadId) {
-      setToast("Generate a partner card first.");
+  const generateCouple = async () => {
+    if (!selectedMatch || !uploadId) {
+      setToast("Generate a partner first and choose it for couple mode.");
       return;
     }
-    if (remaining <= 0) {
+    if (credits <= 0) {
       setToast("This session has reached its prototype generation limit.");
       return;
     }
 
-    setBusyKind("couple");
+    setCoupleStatus("generating");
+
     try {
       const response = await fetch("/api/generate-couple", {
         method: "POST",
@@ -309,460 +374,580 @@ export default function HomePage() {
           scene: selectedScene,
         }),
       });
+
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Couple generation failed.");
+      if (!response.ok) {
+        throw new Error(data.error ?? "Couple generation failed.");
+      }
 
       setCoupleImageUrl(data.imageUrl);
-      setUsage(MAX_CLIENT_GENERATIONS - data.remainingGenerations);
-      setStage("couple");
+      setCoupleStatus("complete");
+      setUsage(data.remainingGenerations);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Something went wrong.";
       setToast(message);
-    } finally {
-      setBusyKind(null);
+      setCoupleStatus("idle");
     }
-  };
-
-  const startOver = () => {
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-    }
-    setStage("idle");
-    setFile(null);
-    setPreviewUrl(null);
-    setUploadId(null);
-    setProfile(null);
-    setMatches({});
-    setSelectedMatch(null);
-    setCoupleImageUrl(null);
   };
 
   return (
-    <main className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-5 sm:px-6 lg:px-8">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute left-[12%] top-10 h-64 w-64 rounded-full bg-accent/10 blur-3xl" />
-        <div className="absolute right-[8%] top-44 h-72 w-72 rounded-full bg-mist/10 blur-3xl" />
-        <div className="absolute bottom-16 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-white/[0.04] blur-3xl" />
-      </div>
+    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-fuchsia-500/30 flex flex-col">
+      <nav className="border-b border-slate-800/60 bg-slate-950/70 backdrop-blur-xl sticky top-0 z-50">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2 cursor-pointer" onClick={resetApp}>
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-fuchsia-500 flex items-center justify-center shadow-lg shadow-purple-500/20">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
+              PairMuse
+            </span>
+            <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-xs text-slate-400 ml-2">
+              Prototype
+            </span>
+          </div>
 
-      <section className="relative overflow-hidden rounded-[36px] border border-white/10 bg-black/25 px-6 py-8 shadow-glow sm:px-8 sm:py-10 lg:px-10">
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[size:42px_42px] opacity-[0.08]" />
-        <div className="relative z-10 grid gap-8 lg:grid-cols-[1.08fr_0.92fr]">
-          <div className="space-y-7">
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.32em] text-mist">
-                PairMuse AI (Prototype)
-              </span>
-              <span className="rounded-full border border-accent/20 bg-accent/10 px-3 py-1 text-xs uppercase tracking-[0.24em] text-accent">
-                Quota-aware mode
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800">
+              <Zap
+                className={`w-4 h-4 ${
+                  credits > 0 ? "text-yellow-400" : "text-slate-600"
+                }`}
+              />
+              <span className="text-sm font-medium">
+                {sessionReady ? credits : "..."}{" "}
+                <span className="text-slate-500">Credits</span>
               </span>
             </div>
+          </div>
+        </div>
+      </nav>
 
-            <div className="max-w-3xl space-y-4">
-              <h1 className="text-4xl font-semibold leading-tight tracking-tight sm:text-6xl">
-                Upload your photo.
-                <br />
-                Build your AI matchboard.
-              </h1>
-              <p className="max-w-2xl text-base leading-7 text-muted sm:text-lg">
-                Analyze once, then generate Similar, Complementary, and Dream
-                partner directions one at a time. The prototype now follows the
-                live Vertex image quota so the experience stays usable in
-                production.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              {featurePills.map((pill) => (
-                <span
-                  key={pill}
-                  className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-ink"
-                >
-                  {pill}
+      <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-12 flex flex-col">
+        {step === "upload" && (
+          <div className="flex flex-col items-center max-w-3xl mx-auto w-full">
+            <div className="text-center space-y-4 mb-12">
+              <h1 className="text-4xl md:text-6xl font-bold tracking-tight text-white">
+                Build your{" "}
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-fuchsia-400">
+                  AI matchboard
                 </span>
-              ))}
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              {signalRows.map((item) => (
-                <div
-                  key={item.label}
-                  className="rounded-[24px] border border-white/10 bg-white/[0.04] p-4"
-                >
-                  <p className="text-xs uppercase tracking-[0.28em] text-mist/70">
-                    {item.label}
-                  </p>
-                  <p className="mt-3 text-sm leading-6 text-ink">{item.value}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
-              <div className="glass rounded-[28px] p-5 shadow-glow">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.28em] text-mist/70">
-                      Session Status
-                    </p>
-                    <h2 className="mt-2 text-2xl font-semibold">
-                      {sessionReady ? remaining : "..."}/5 left
-                    </h2>
-                  </div>
-                  <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-muted">
-                    Anonymous
-                  </div>
-                </div>
-                <p className="mt-3 text-sm leading-6 text-muted">
-                  One partner image equals one generation. Couple photos count as
-                  one more generation.
-                </p>
-              </div>
-
-              <div className="glass rounded-[28px] p-5 shadow-glow">
-                <p className="text-xs uppercase tracking-[0.28em] text-mist/70">
-                  Production Constraint
-                </p>
-                <div className="mt-4 space-y-3 text-sm leading-6 text-muted">
-                  <p>Current live image quota is limited.</p>
-                  <p>So PairMuse now creates one partner card per request.</p>
-                  <p>You still keep the same three visual directions.</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              {MATCH_ORDER.map((kind) => (
-                <div
-                  key={kind}
-                  className="glass rounded-[24px] p-3 text-center shadow-glow"
-                >
-                  <div className="mb-3 h-24 rounded-[18px] bg-gradient-to-br from-white/10 via-white/[0.04] to-transparent" />
-                  <p className="text-xs uppercase tracking-[0.24em] text-mist/70">
-                    {MATCH_COPY[kind].badge}
-                  </p>
-                  <p className="mt-2 text-sm text-ink">{MATCH_COPY[kind].title}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="relative mt-8 grid gap-6 lg:grid-cols-[1.02fr_0.98fr]">
-        <div>
-          <UploadDropzone
-            previewUrl={previewUrl}
-            isBusy={busyKind !== null}
-            onFileSelect={onFileSelect}
-          />
-        </div>
-
-        <div className="space-y-5">
-          <div className="glass rounded-[30px] p-6 shadow-glow">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.28em] text-mist/70">
-                  Studio Flow
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold">
-                  Analyze first, generate next
-                </h2>
-              </div>
-              <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-muted">
-                Quota-safe
-              </div>
-            </div>
-
-            <div className="mt-6 space-y-3">
-              {[
-                "Upload one clear portrait",
-                "Analyze the style profile once",
-                "Generate Similar, Complementary, or Dream individually",
-                "Use any generated partner for a couple scene",
-              ].map((step, index) => (
-                <div
-                  key={step}
-                  className="flex items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-4 py-3"
-                >
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-sm text-ink">
-                    {index + 1}
-                  </div>
-                  <span className="text-sm text-muted">{step}</span>
-                </div>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              disabled={!file || busyKind !== null || !sessionReady}
-              onClick={runAnalyzeFlow}
-              className="mt-6 w-full rounded-full bg-ink px-5 py-3 text-sm font-medium text-background transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {busyKind === "analyze" ? "Reading your style..." : "Analyze My Photo"}
-            </button>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="glass rounded-[26px] p-5 shadow-glow">
-              <p className="text-xs uppercase tracking-[0.28em] text-mist/70">
-                Best Input
-              </p>
-              <p className="mt-3 text-sm leading-6 text-muted">
-                Front-facing portrait, clean lighting, one adult face, visible
-                outfit details.
+              </h1>
+              <p className="text-lg text-slate-400 max-w-xl mx-auto leading-relaxed">
+                Analyze your style, mood, and lighting. Then generate Similar,
+                Complementary, or Dream partners tailored to your vibe.
               </p>
             </div>
-            <div className="glass rounded-[26px] p-5 shadow-glow">
-              <p className="text-xs uppercase tracking-[0.28em] text-mist/70">
-                Prototype Scope
-              </p>
-              <p className="mt-3 text-sm leading-6 text-muted">
-                Optimized for real quota limits, minimal friction, and live demo
-                reliability.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
 
-      {stage === "processing" ? (
-        <section className="mt-8">
-          <ProgressLoader currentStep={currentStep} />
-        </section>
-      ) : null}
-
-      {profile ? (
-        <section className="mt-8 space-y-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.28em] text-mist/70">
-                Matchboard
-              </p>
-              <h2 className="mt-2 text-3xl font-semibold">
-                Generate each direction when you want it
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-muted">
-                Your visual profile is cached for this session, so each partner
-                card now generates one at a time instead of in a single batch.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={startOver}
-              className="rounded-full border border-white/10 px-4 py-2 text-sm text-ink hover:bg-white/5"
-            >
-              Start over
-            </button>
-          </div>
-
-          <div className="grid gap-5 lg:grid-cols-3">
-            {MATCH_ORDER.map((kind) => {
-              const card = matches[kind];
-              const isBusy = busyKind === kind;
-              const isSelected = selectedMatch?.id === card?.id;
-
-              return (
-                <div key={kind} className="glass rounded-[28px] p-4 shadow-glow">
-                  {card ? (
+            <div className="grid md:grid-cols-2 gap-8 w-full">
+              <div
+                className={`relative group rounded-3xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center p-8 text-center min-h-[320px] overflow-hidden ${
+                  isDragging
+                    ? "border-fuchsia-500 bg-fuchsia-500/10"
+                    : "border-slate-800 bg-slate-900/50 hover:border-slate-600 hover:bg-slate-900"
+                } ${userImage ? "border-solid border-slate-700 p-2" : ""}`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                {userImage ? (
+                  <div className="relative w-full h-full rounded-2xl overflow-hidden group">
                     <img
-                      src={card.imageUrl}
-                      alt={card.title}
-                      className="h-80 w-full rounded-[22px] object-cover"
+                      src={userImage}
+                      alt="User upload"
+                      className="w-full h-full object-cover"
                     />
-                  ) : (
-                    <div className="flex h-80 w-full items-center justify-center rounded-[22px] border border-dashed border-white/10 bg-white/[0.03] px-6 text-center">
-                      <div>
-                        <div className="mx-auto h-20 w-20 rounded-full bg-gradient-to-br from-accent/15 to-mist/15" />
-                        <p className="mt-5 text-lg font-medium text-ink">
-                          {MATCH_COPY[kind].title}
-                        </p>
-                        <p className="mt-3 text-sm leading-6 text-muted">
-                          {MATCH_COPY[kind].description}
-                        </p>
+                    <div className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                      <label className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-full text-sm font-medium transition-colors cursor-pointer">
+                        Change Photo
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          onChange={(event) => {
+                            const nextFile = event.target.files?.[0];
+                            if (nextFile) onFilePicked(nextFile);
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="w-16 h-16 mb-4 rounded-full bg-slate-800 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
+                      <UploadCloud className="w-8 h-8 text-slate-400 group-hover:text-fuchsia-400 transition-colors" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-white mb-2">
+                      Drop a portrait or browse
+                    </h3>
+                    <p className="text-sm text-slate-400 mb-6 max-w-[200px]">
+                      JPG, PNG, or WEBP up to 10MB.
+                    </p>
+                    <label className="px-6 py-2.5 rounded-full bg-white text-slate-950 font-semibold hover:bg-slate-200 transition-colors cursor-pointer">
+                      Browse Files
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(event) => {
+                          const nextFile = event.target.files?.[0];
+                          if (nextFile) onFilePicked(nextFile);
+                        }}
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
+
+              <div className="flex flex-col justify-center space-y-8">
+                <div className="space-y-6">
+                  <h3 className="text-xl font-semibold text-white flex items-center gap-2">
+                    <Wand2 className="w-5 h-5 text-purple-400" /> Studio Flow
+                  </h3>
+                  <ul className="space-y-4">
+                    {[
+                      "Upload one clear, front-facing portrait",
+                      "We analyze your style profile once",
+                      "Generate matches individually",
+                      "Create stunning couple scenes",
+                    ].map((text, i) => (
+                      <li key={i} className="flex items-start gap-3">
+                        <div className="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0 mt-0.5">
+                          <span className="text-xs font-medium text-slate-300">
+                            {i + 1}
+                          </span>
+                        </div>
+                        <span className="text-slate-300">{text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-indigo-950/30 border border-indigo-900/50">
+                  <div className="flex items-start gap-3">
+                    <Info className="w-5 h-5 text-indigo-400 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-semibold text-indigo-300 mb-1">
+                        Best Input for AI
+                      </h4>
+                      <p className="text-xs text-indigo-200/70">
+                        Front-facing portrait, clean lighting, single adult face,
+                        and visible outfit details.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={startAnalysis}
+                  disabled={!userImage || hasBusyState}
+                  className={`w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all duration-300 ${
+                    userImage && !hasBusyState
+                      ? "bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white hover:shadow-lg hover:shadow-fuchsia-500/25 hover:-translate-y-0.5"
+                      : "bg-slate-800 text-slate-500 cursor-not-allowed"
+                  }`}
+                >
+                  Analyze My Photo <ArrowRight className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {step === "analyzing" && (
+          <div className="flex-1 flex flex-col items-center justify-center">
+            <div className="relative w-48 h-48 mb-8">
+              <div className="absolute inset-0 rounded-full border-2 border-fuchsia-500/20 animate-[spin_3s_linear_infinite]" />
+              <div className="absolute inset-2 rounded-full border-2 border-purple-500/40 animate-[spin_2s_linear_infinite_reverse]" />
+              {userImage ? (
+                <img
+                  src={userImage}
+                  alt="Analyzing"
+                  className="absolute inset-4 rounded-full object-cover shadow-2xl shadow-purple-500/20"
+                />
+              ) : null}
+              <div className="absolute inset-4 overflow-hidden rounded-full">
+                <div className="w-full h-1 bg-gradient-to-r from-transparent via-white to-transparent shadow-[0_0_15px_rgba(255,255,255,0.8)] animate-[scan_2s_ease-in-out_infinite]" />
+              </div>
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-2">
+              {MATCH_ORDER.some((kind) => matches[kind].status === "generating")
+                ? "Creating Match"
+                : coupleStatus === "generating"
+                  ? "Creating Couple Scene"
+                  : "Analyzing Profile"}
+            </h2>
+            <p className="text-slate-400 animate-pulse text-center">
+              {MATCH_ORDER.some((kind) => matches[kind].status === "generating")
+                ? "Generating one match direction based on your saved style profile..."
+                : coupleStatus === "generating"
+                  ? "Blending your uploaded portrait and selected partner into one shared scene..."
+                  : "Extracting style, mood, palette, and lighting..."}
+            </p>
+
+            <style jsx>{`
+              @keyframes scan {
+                0% {
+                  transform: translateY(-100%);
+                }
+                100% {
+                  transform: translateY(400%);
+                }
+              }
+            `}</style>
+          </div>
+        )}
+
+        {step === "results" && (
+          <div className="w-full space-y-8">
+            <div className="flex flex-col gap-6 bg-slate-900/50 border border-slate-800 p-6 rounded-3xl backdrop-blur-sm">
+              <div className="flex flex-col md:flex-row gap-6 items-start justify-between">
+                <div className="flex items-center gap-6">
+                  <div className="relative w-24 h-24 rounded-2xl overflow-hidden shrink-0 border border-slate-700">
+                    {userImage ? (
+                      <img
+                        src={userImage}
+                        alt="Your Photo"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : null}
+                    <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-2">
+                      <div className="flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                        <span className="text-[10px] font-medium text-emerald-400 uppercase tracking-wider">
+                          Analyzed
+                        </span>
                       </div>
                     </div>
-                  )}
-
-                  <div className="space-y-3 px-1 pb-1 pt-4">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.24em] text-mist/70">
-                        {MATCH_COPY[kind].badge}
-                      </p>
-                      <h3 className="mt-2 text-xl font-semibold text-ink">
-                        {card?.tag ?? MATCH_COPY[kind].title}
-                      </h3>
-                      <p className="mt-2 text-sm leading-6 text-muted">
-                        {MATCH_COPY[kind].description}
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap gap-3">
-                      <button
-                        type="button"
-                        onClick={() => generateMatch(kind)}
-                        disabled={busyKind !== null || remaining <= 0}
-                        className="flex-1 rounded-full bg-ink px-4 py-3 text-sm font-medium text-background transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {isBusy
-                          ? "Generating..."
-                          : card
-                            ? "Regenerate"
-                            : `Generate ${MATCH_COPY[kind].title}`}
-                      </button>
-
-                      {card ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedMatch(card);
-                            setCoupleImageUrl(null);
-                            setStage("results");
-                          }}
-                          disabled={busyKind !== null}
-                          className={`rounded-full border px-4 py-3 text-sm transition ${
-                            isSelected
-                              ? "border-accent/40 bg-accent/10 text-accent"
-                              : "border-white/10 text-ink hover:bg-white/5"
-                          }`}
-                        >
-                          {isSelected ? "Selected" : "Use for Couple"}
-                        </button>
-                      ) : null}
-
-                      {card ? (
-                        <a
-                          href={card.imageUrl}
-                          download={`${card.kind}.png`}
-                          className="rounded-full border border-white/10 px-4 py-3 text-sm text-ink transition hover:bg-white/5"
-                        >
-                          Download
-                        </a>
-                      ) : null}
-                    </div>
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-white mb-1">
+                      Your Matchboard
+                    </h2>
+                    <p className="text-slate-400 text-sm">
+                      Base profile saved. Generate directions below using your
+                      credits.
+                    </p>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
 
-      {profile ? (
-        <section className="mt-8 grid gap-6 lg:grid-cols-[0.86fr_1.14fr]">
-          <div className="space-y-5">
-            <div className="glass rounded-[30px] p-6 shadow-glow">
-              <p className="text-xs uppercase tracking-[0.28em] text-mist/70">
-                Couple Mode
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold">
-                Turn a generated partner into a shared scene
-              </h2>
-              <p className="mt-3 text-sm leading-6 text-muted">
-                {selectedMatch
-                  ? `Selected partner: ${selectedMatch.tag}`
-                  : "Generate at least one partner card above, then choose one for couple mode."}
-              </p>
+                <button
+                  onClick={resetApp}
+                  className="px-4 py-2 rounded-full bg-slate-800 hover:bg-slate-700 text-sm font-medium transition-colors"
+                >
+                  Start Over
+                </button>
+              </div>
 
-              <div className="mt-5">
+              {profile ? (
+                <div className="grid md:grid-cols-4 gap-3">
+                  <SignalChip label="Style" value={profile.style} />
+                  <SignalChip label="Mood" value={profile.mood} />
+                  <SignalChip label="Lighting" value={profile.lighting} />
+                  <SignalChip
+                    label="Palette"
+                    value={profile.color_palette.join(", ")}
+                  />
+                </div>
+              ) : null}
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-6">
+              <MatchCardView
+                title={MATCH_COPY.similar.title}
+                subtitle={MATCH_COPY.similar.subtitle}
+                type="similar"
+                icon={<ImageIcon className="w-5 h-5" />}
+                color="blue"
+                data={matches.similar}
+                selected={selectedMatchId === matches.similar.card?.id}
+                onGenerate={() => generateMatch("similar")}
+                onSelect={() => setSelectedMatchId(matches.similar.card?.id ?? null)}
+                credits={credits}
+                disabled={hasBusyState}
+              />
+
+              <MatchCardView
+                title={MATCH_COPY.complementary.title}
+                subtitle={MATCH_COPY.complementary.subtitle}
+                type="complementary"
+                icon={<Zap className="w-5 h-5" />}
+                color="fuchsia"
+                data={matches.complementary}
+                selected={selectedMatchId === matches.complementary.card?.id}
+                onGenerate={() => generateMatch("complementary")}
+                onSelect={() =>
+                  setSelectedMatchId(matches.complementary.card?.id ?? null)
+                }
+                credits={credits}
+                disabled={hasBusyState}
+              />
+
+              <MatchCardView
+                title={MATCH_COPY.dream.title}
+                subtitle={MATCH_COPY.dream.subtitle}
+                type="dream"
+                icon={<Heart className="w-5 h-5" />}
+                color="amber"
+                data={matches.dream}
+                selected={selectedMatchId === matches.dream.card?.id}
+                onGenerate={() => generateMatch("dream")}
+                onSelect={() => setSelectedMatchId(matches.dream.card?.id ?? null)}
+                credits={credits}
+                disabled={hasBusyState}
+              />
+            </div>
+
+            <div className="grid lg:grid-cols-[0.9fr_1.1fr] gap-6">
+              <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 space-y-5">
+                <div>
+                  <h3 className="text-xl font-semibold text-white flex items-center gap-2">
+                    <Camera className="w-5 h-5 text-fuchsia-400" />
+                    Couple Scene
+                  </h3>
+                  <p className="text-sm text-slate-400 mt-2">
+                    {selectedMatch
+                      ? `Selected partner: ${selectedMatch.tag}`
+                      : "Generate a partner and select it to create a couple photo."}
+                  </p>
+                </div>
+
                 <SceneSelector
                   selected={selectedScene}
                   onSelect={(scene) => setSelectedScene(scene)}
                 />
+
+                <div className="text-xs text-slate-500">
+                  Available scenes: {sceneLabels.join(", ")}
+                </div>
+
+                <button
+                  onClick={generateCouple}
+                  disabled={!selectedMatch || hasBusyState || credits <= 0}
+                  className={`w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all duration-300 ${
+                    selectedMatch && !hasBusyState && credits > 0
+                      ? "bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white hover:shadow-lg hover:shadow-fuchsia-500/25 hover:-translate-y-0.5"
+                      : "bg-slate-800 text-slate-500 cursor-not-allowed"
+                  }`}
+                >
+                  Create Couple Photo <ArrowRight className="w-5 h-5" />
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={runCoupleFlow}
-                disabled={!selectedMatch || busyKind !== null}
-                className="mt-6 w-full rounded-full bg-ink px-5 py-3 text-sm font-medium text-background transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {busyKind === "couple"
-                  ? "Generating couple image..."
-                  : "Generate Couple Image"}
-              </button>
-            </div>
-
-            <div className="glass rounded-[30px] p-6 shadow-glow">
-              <p className="text-xs uppercase tracking-[0.28em] text-mist/70">
-                Extracted Style Signals
-              </p>
-              <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-muted">
-                <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-3">
-                  <p className="text-xs uppercase tracking-[0.22em] text-mist/60">
-                    Style
-                  </p>
-                  <p className="mt-2 text-ink">{profile.style}</p>
-                </div>
-                <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-3">
-                  <p className="text-xs uppercase tracking-[0.22em] text-mist/60">
-                    Mood
-                  </p>
-                  <p className="mt-2 text-ink">{profile.mood}</p>
-                </div>
-                <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-3">
-                  <p className="text-xs uppercase tracking-[0.22em] text-mist/60">
-                    Lighting
-                  </p>
-                  <p className="mt-2 text-ink">{profile.lighting}</p>
-                </div>
-                <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-3">
-                  <p className="text-xs uppercase tracking-[0.22em] text-mist/60">
-                    Palette
-                  </p>
-                  <p className="mt-2 text-ink">
-                    {profile.color_palette.join(", ")}
-                  </p>
-                </div>
+              <div className="rounded-3xl border border-slate-800 bg-slate-900/60 overflow-hidden min-h-[420px]">
+                {coupleImageUrl ? (
+                  <div className="relative h-full min-h-[420px]">
+                    <img
+                      src={coupleImageUrl}
+                      alt="Generated couple scene"
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent" />
+                    <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-white">
+                          Couple Scene Ready
+                        </p>
+                        <p className="text-xs text-slate-300 mt-1">
+                          Scene: {selectedScene}
+                        </p>
+                      </div>
+                      <a
+                        href={coupleImageUrl}
+                        download="pairmuse-couple.png"
+                        className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md text-white transition-colors border border-white/10 text-sm font-medium"
+                      >
+                        Download
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-full min-h-[420px] flex items-center justify-center p-8 text-center">
+                    <div className="space-y-4">
+                      <div className="w-16 h-16 mx-auto rounded-full bg-slate-800 flex items-center justify-center">
+                        <Camera className="w-8 h-8 text-slate-500" />
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-semibold text-white">
+                          Couple preview area
+                        </h4>
+                        <p className="text-sm text-slate-400 mt-2 max-w-sm">
+                          Select any generated partner card and create a shared
+                          scene that uses both faces as visual references.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
-
-          <div className="glass rounded-[30px] p-4 shadow-glow">
-            {coupleImageUrl ? (
-              <div className="space-y-4">
-                <img
-                  src={coupleImageUrl}
-                  alt="Generated couple portrait"
-                  className="h-[460px] w-full rounded-[24px] object-cover"
-                />
-                <div className="flex flex-wrap gap-3">
-                  <a
-                    href={coupleImageUrl}
-                    download="pairmuse-couple.png"
-                    className="rounded-full bg-ink px-4 py-3 text-sm font-medium text-background"
-                  >
-                    Download Image
-                  </a>
-                  <button
-                    type="button"
-                    onClick={runCoupleFlow}
-                    disabled={!selectedMatch || busyKind !== null}
-                    className="rounded-full border border-white/10 px-4 py-3 text-sm text-ink hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Regenerate
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex h-[460px] flex-col items-center justify-center rounded-[24px] border border-dashed border-white/10 bg-white/[0.03] px-6 text-center">
-                <div className="h-24 w-24 rounded-full bg-gradient-to-br from-accent/20 to-mist/15 blur-sm" />
-                <p className="mt-6 text-lg font-medium text-ink">
-                  Couple portrait preview
-                </p>
-                <p className="mt-3 max-w-md text-sm leading-6 text-muted">
-                  Generate any one partner card, select it, then render a couple
-                  scene without batching multiple image requests at once.
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
-      ) : null}
+        )}
+      </main>
 
       <Toast message={toast} />
-    </main>
+    </div>
+  );
+}
+
+function SignalChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-slate-950/60 border border-slate-800 px-4 py-3">
+      <p className="text-[10px] uppercase tracking-[0.22em] text-slate-500">
+        {label}
+      </p>
+      <p className="text-sm text-slate-200 mt-2">{value}</p>
+    </div>
+  );
+}
+
+function MatchCardView({
+  title,
+  subtitle,
+  type,
+  icon,
+  color,
+  data,
+  selected,
+  onGenerate,
+  onSelect,
+  credits,
+  disabled,
+}: {
+  title: string;
+  subtitle: string;
+  type: MatchKind;
+  icon: React.ReactNode;
+  color: "blue" | "fuchsia" | "amber";
+  data: {
+    status: "idle" | "generating" | "complete";
+    url: string | null;
+    card?: MatchCard;
+  };
+  selected: boolean;
+  onGenerate: () => void;
+  onSelect: () => void;
+  credits: number;
+  disabled: boolean;
+}) {
+  const isGenerating = data.status === "generating";
+  const isComplete = data.status === "complete";
+  const isIdle = data.status === "idle";
+
+  const colorMap = {
+    blue: "from-blue-500/20 to-cyan-500/20 border-blue-500/30 text-blue-400 hover:border-blue-500/50",
+    fuchsia:
+      "from-fuchsia-500/20 to-purple-500/20 border-fuchsia-500/30 text-fuchsia-400 hover:border-fuchsia-500/50",
+    amber:
+      "from-amber-500/20 to-orange-500/20 border-amber-500/30 text-amber-400 hover:border-amber-500/50",
+  };
+
+  const btnColorMap = {
+    blue: "bg-blue-500 hover:bg-blue-600",
+    fuchsia: "bg-fuchsia-500 hover:bg-fuchsia-600",
+    amber: "bg-amber-500 hover:bg-amber-600",
+  };
+
+  return (
+    <div
+      className={`relative rounded-3xl border bg-slate-900/60 overflow-hidden flex flex-col h-[420px] transition-all duration-300 ${
+        isIdle ? "hover:-translate-y-1" : ""
+      } ${isComplete ? "border-slate-700" : "border-slate-800"}`}
+    >
+      <div className="p-5 z-10 flex justify-between items-start bg-gradient-to-b from-slate-900/90 to-transparent">
+        <div>
+          <div
+            className={`flex items-center gap-2 font-semibold mb-1 ${
+              colorMap[color].split(" ")[3]
+            }`}
+          >
+            {icon} {title}
+          </div>
+          <p className="text-xs text-slate-400">{subtitle}</p>
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col items-center justify-center p-6 relative">
+        {isIdle && (
+          <div
+            className={`w-full h-full rounded-2xl border-2 border-dashed bg-gradient-to-b ${
+              colorMap[color]
+            } flex flex-col items-center justify-center text-center p-6 transition-all`}
+          >
+            <Lock className="w-8 h-8 opacity-50 mb-4" />
+            <p className="text-sm text-slate-300 mb-3">
+              Generates one unique partner based on this direction.
+            </p>
+            <p className="text-xs text-slate-500 mb-6">
+              One image per request keeps the live quota stable.
+            </p>
+            <button
+              onClick={onGenerate}
+              disabled={credits <= 0 || disabled}
+              className={`px-6 py-2.5 rounded-full text-white font-medium flex items-center gap-2 transition-all ${
+                credits > 0 && !disabled
+                  ? btnColorMap[color]
+                  : "bg-slate-800 text-slate-500 cursor-not-allowed"
+              }`}
+            >
+              <Zap className="w-4 h-4" /> Generate (1 Credit)
+            </button>
+          </div>
+        )}
+
+        {isGenerating && (
+          <div className="flex flex-col items-center justify-center animate-pulse">
+            <div
+              className={`w-16 h-16 rounded-full bg-gradient-to-tr ${
+                colorMap[color].split(" ").slice(0, 2).join(" ")
+              } flex items-center justify-center mb-4 animate-spin`}
+            >
+              <Wand2 className="w-6 h-6 text-white" />
+            </div>
+            <p className="text-sm font-medium text-slate-300">Creating match...</p>
+          </div>
+        )}
+
+        {isComplete && data.url && data.card && (
+          <div className="absolute inset-0">
+            <img
+              src={data.url}
+              alt={title}
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent" />
+            <div className="absolute bottom-4 left-0 right-0 px-4 flex justify-between items-end gap-3">
+              <div className="flex gap-2">
+                <button
+                  onClick={onGenerate}
+                  disabled={disabled}
+                  className="p-3 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-full text-white transition-colors border border-white/10 disabled:opacity-50"
+                >
+                  <Wand2 className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={onSelect}
+                  className={`p-3 backdrop-blur-md rounded-full text-white transition-colors border ${
+                    selected
+                      ? "bg-fuchsia-500/70 border-fuchsia-300/50"
+                      : "bg-white/10 hover:bg-white/20 border-white/10"
+                  }`}
+                >
+                  <Camera className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex flex-col items-end gap-2">
+                <span className="text-xs font-medium bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-full text-white border border-white/10">
+                  Generated
+                </span>
+                <span className="text-[11px] text-slate-200 bg-black/40 px-3 py-1 rounded-full border border-white/10">
+                  {selected ? "Selected for couple" : "Tap camera to use"}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

@@ -62,6 +62,7 @@ GCS_BUCKET=your-gcs-bucket
 VERTEX_LOCATION=us-central1
 VERTEX_MODEL_ANALYSIS=gemini-2.5-flash
 VERTEX_MODEL_IMAGE=imagen-3.0-generate-002
+VERTEX_MODEL_COUPLE_IMAGE=gemini-2.5-flash-image
 FIRESTORE_ENABLED=false
 FIRESTORE_COLLECTION_PREFIX=pairmuse
 NEXT_PUBLIC_APP_URL=http://localhost:3000
@@ -116,7 +117,7 @@ gcloud run deploy pairmuse-ai \
   --image us-central1-docker.pkg.dev/YOUR_PROJECT/pairmuse/pairmuse-ai:latest \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars GCP_PROJECT_ID=YOUR_PROJECT,GCS_BUCKET=YOUR_BUCKET,VERTEX_LOCATION=us-central1,VERTEX_MODEL_ANALYSIS=gemini-2.5-flash,VERTEX_MODEL_IMAGE=imagen-3.0-generate-002,FIRESTORE_ENABLED=true,FIRESTORE_COLLECTION_PREFIX=pairmuse
+  --set-env-vars GCP_PROJECT_ID=YOUR_PROJECT,GCS_BUCKET=YOUR_BUCKET,VERTEX_LOCATION=us-central1,VERTEX_MODEL_ANALYSIS=gemini-2.5-flash,VERTEX_MODEL_IMAGE=imagen-3.0-generate-002,VERTEX_MODEL_COUPLE_IMAGE=gemini-2.5-flash-image,FIRESTORE_ENABLED=true,FIRESTORE_COLLECTION_PREFIX=pairmuse
 ```
 
 5. Grant the Cloud Run service account permissions:
@@ -150,12 +151,13 @@ Images are exposed to the client through signed read URLs. The app does not prom
 - `POST /api/generate`
   - Generates one partner portrait per request for `similar`, `complementary`, or `dream`.
 - `POST /api/generate-couple`
-  - Generates one fictional couple portrait from the selected match and preset scene.
+  - Generates one fictional couple portrait from the selected match and preset scene using the original upload image plus the generated partner image as references.
 
 ## MVP Limitations
 
 - Firestore persistence is optional. If `FIRESTORE_ENABLED=false`, usage and metadata fall back to in-memory storage and can reset on restart or horizontal scale-out.
 - The UI is intentionally tuned for limited Imagen quota, so partner directions are generated individually rather than in a batch of three.
+- Couple-image identity preservation is improved by using Gemini image generation with both the original upload and the selected partner card as source images, but it is still not a perfect face-locking system.
 - Couple generation is prompt-driven and style-based. It does not reliably preserve the real uploaded face.
 - Face validation relies on Gemini analysis, not a dedicated face detection pipeline.
 - This prototype is optimized for demo speed rather than production abuse protection.

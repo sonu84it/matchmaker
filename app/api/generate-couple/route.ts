@@ -3,6 +3,7 @@ import { generateCoupleImage } from "@/lib/ai/generate";
 import { getSessionIdFromHeaders } from "@/lib/session";
 import {
   findPartnerMatch,
+  getUpload,
   getUsageCount,
   incrementUsage,
   MAX_GENERATIONS,
@@ -42,8 +43,9 @@ export async function POST(request: NextRequest) {
     });
     const match = partnerRecord?.match;
     const profile = partnerRecord?.profile as StyleProfile | undefined;
+    const upload = uploadId ? await getUpload(uploadId) : null;
 
-    if (!partnerRecord || !match || !profile) {
+    if (!partnerRecord || !match || !profile || !upload) {
       return NextResponse.json(
         { error: "Match results not found. Please generate partners first." },
         { status: 404 },
@@ -55,6 +57,14 @@ export async function POST(request: NextRequest) {
       partnerTag: match.tag,
       scene,
       profile,
+      originalImage: {
+        storagePath: upload.storagePath,
+        mimeType: upload.mimeType,
+      },
+      partnerImage: {
+        storagePath: match.storagePath,
+        mimeType: "image/png",
+      },
     });
     const usage = await incrementUsage(sessionId);
     const generationId = makeId("couple");

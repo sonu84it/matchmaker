@@ -7,6 +7,10 @@ export const env = {
   vertexLocation: valueOrUndefined("VERTEX_LOCATION", "us-central1"),
   analysisModel: valueOrUndefined("VERTEX_MODEL_ANALYSIS", "gemini-2.5-flash"),
   imageModel: valueOrUndefined("VERTEX_MODEL_IMAGE", "imagen-3.0-generate-002"),
+  coupleImageModel: valueOrUndefined(
+    "VERTEX_MODEL_COUPLE_IMAGE",
+    "gemini-2.5-flash-image",
+  ),
   firestoreEnabled: valueOrUndefined("FIRESTORE_ENABLED", "false"),
   firestoreCollectionPrefix: valueOrUndefined(
     "FIRESTORE_COLLECTION_PREFIX",

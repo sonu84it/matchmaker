@@ -40,3 +40,8 @@ export async function readFileAsBase64(path: string) {
   const [buffer] = await getBucket().file(path).download();
   return buffer.toString("base64");
 }
+
+export async function readFileBuffer(path: string) {
+  const [buffer] = await getBucket().file(path).download();
+  return buffer;
+}

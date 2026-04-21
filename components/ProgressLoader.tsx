@@ -1,4 +1,4 @@
-const steps = [
+const defaultSteps = [
   "Uploading image",
   "Reading your style",
   "Matching aesthetics",
@@ -7,11 +7,23 @@ const steps = [
 
 type ProgressLoaderProps = {
   currentStep: number;
+  title?: string;
+  description?: string;
+  steps?: string[];
 };
 
-export function ProgressLoader({ currentStep }: ProgressLoaderProps) {
+export function ProgressLoader({
+  currentStep,
+  title = "Building your matchboard",
+  description = "This is an AI-generated fictional match.",
+  steps = defaultSteps,
+}: ProgressLoaderProps) {
   return (
     <div className="glass rounded-[28px] p-6 shadow-glow">
+      <div className="mb-5">
+        <h3 className="text-xl font-semibold text-ink">{title}</h3>
+        <p className="mt-2 text-sm leading-6 text-muted">{description}</p>
+      </div>
       <div className="mb-6 overflow-hidden rounded-full bg-white/5">
         <div
           className="h-2 rounded-full bg-gradient-to-r from-accent to-mist transition-all duration-700"
@@ -40,9 +52,6 @@ export function ProgressLoader({ currentStep }: ProgressLoaderProps) {
           );
         })}
       </div>
-      <p className="mt-6 text-sm text-muted">
-        This is an AI-generated fictional match.
-      </p>
     </div>
   );
 }
