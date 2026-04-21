@@ -9,6 +9,10 @@ type ImagenPredictResponse = {
   predictions?: Array<{
     bytesBase64Encoded?: string;
     mimeType?: string;
+    images?: Array<{
+      bytesBase64Encoded?: string;
+      mimeType?: string;
+    }>;
   }>;
 };
 
@@ -41,13 +45,20 @@ async function generateImage(prompt: string) {
   );
 
   const prediction = response.predictions?.[0];
-  if (!prediction?.bytesBase64Encoded) {
+  const imagePayload = prediction?.bytesBase64Encoded
+    ? {
+        bytesBase64Encoded: prediction.bytesBase64Encoded,
+        mimeType: prediction.mimeType,
+      }
+    : prediction?.images?.[0];
+
+  if (!imagePayload?.bytesBase64Encoded) {
     throw new Error("Vertex AI image generation returned no image.");
   }
 
   return {
-    buffer: Buffer.from(prediction.bytesBase64Encoded, "base64"),
-    mimeType: prediction.mimeType ?? "image/png",
+    buffer: Buffer.from(imagePayload.bytesBase64Encoded, "base64"),
+    mimeType: imagePayload.mimeType ?? "image/png",
   };
 }
 

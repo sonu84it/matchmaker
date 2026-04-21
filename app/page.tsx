@@ -96,6 +96,38 @@ export default function App() {
     "idle",
   );
 
+  const rotateSession = (options?: { announce?: boolean }) => {
+    const nextSessionId = makeId("session");
+    window.localStorage.setItem("pairmuse.sessionId", nextSessionId);
+    window.localStorage.setItem("pairmuse.usageCount", "0");
+    setSessionReady(false);
+    setUsageCount(0);
+    clearFlowState();
+    setSessionId(nextSessionId);
+    if (options?.announce) {
+      setToast("Started a fresh demo session with 5 new credits.");
+    }
+  };
+
+  const clearFlowState = () => {
+    if (userImage?.startsWith("blob:")) {
+      URL.revokeObjectURL(userImage);
+    }
+    setStep("upload");
+    setUserImage(null);
+    setFile(null);
+    setUploadId(null);
+    setProfile(null);
+    setSelectedMatchId(null);
+    setCoupleImageUrl(null);
+    setCoupleStatus("idle");
+    setMatches({
+      similar: { status: "idle", url: null },
+      complementary: { status: "idle", url: null },
+      dream: { status: "idle", url: null },
+    });
+  };
+
   useEffect(() => {
     const savedSessionId =
       window.localStorage.getItem("pairmuse.sessionId") ?? makeId("session");
@@ -121,12 +153,20 @@ export default function App() {
         }
 
         if (!active) return;
+        if (data.usageCount >= MAX_CLIENT_GENERATIONS) {
+          rotateSession({ announce: true });
+          return;
+        }
         setUsageCount(data.usageCount);
       } catch {
         if (!active) return;
         const fallbackUsage = Number(
           window.localStorage.getItem("pairmuse.usageCount") ?? "0",
         );
+        if (fallbackUsage >= MAX_CLIENT_GENERATIONS) {
+          rotateSession({ announce: true });
+          return;
+        }
         setUsageCount(fallbackUsage);
       } finally {
         if (active) setSessionReady(true);
@@ -177,22 +217,11 @@ export default function App() {
   };
 
   const resetApp = () => {
-    if (userImage?.startsWith("blob:")) {
-      URL.revokeObjectURL(userImage);
-    }
-    setStep("upload");
-    setUserImage(null);
-    setFile(null);
-    setUploadId(null);
-    setProfile(null);
-    setSelectedMatchId(null);
-    setCoupleImageUrl(null);
-    setCoupleStatus("idle");
-    setMatches({
-      similar: { status: "idle", url: null },
-      complementary: { status: "idle", url: null },
-      dream: { status: "idle", url: null },
-    });
+    clearFlowState();
+  };
+
+  const startNewSession = () => {
+    rotateSession({ announce: true });
   };
 
   const onFilePicked = (nextFile: File) => {
@@ -415,10 +444,16 @@ export default function App() {
                 }`}
               />
               <span className="text-sm font-medium">
-                {sessionReady ? credits : "..."}{" "}
-                <span className="text-slate-500">Credits</span>
+                {credits} <span className="text-slate-500">Credits</span>
               </span>
             </div>
+            <button
+              onClick={startNewSession}
+              disabled={hasBusyState}
+              className="px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-sm text-slate-300 hover:bg-slate-800 transition-colors disabled:opacity-50"
+            >
+              New Session
+            </button>
           </div>
         </div>
       </nav>
@@ -555,8 +590,8 @@ export default function App() {
         )}
 
         {step === "analyzing" && (
-          <div className="flex-1 flex flex-col items-center justify-center">
-            <div className="relative w-48 h-48 mb-8">
+          <div className="flex-1 flex flex-col items-center justify-center py-10">
+            <div className="relative z-0 w-48 h-48 mb-10 shrink-0">
               <div className="absolute inset-0 rounded-full border-2 border-fuchsia-500/20 animate-[spin_3s_linear_infinite]" />
               <div className="absolute inset-2 rounded-full border-2 border-purple-500/40 animate-[spin_2s_linear_infinite_reverse]" />
               {userImage ? (
@@ -570,20 +605,22 @@ export default function App() {
                 <div className="w-full h-1 bg-gradient-to-r from-transparent via-white to-transparent shadow-[0_0_15px_rgba(255,255,255,0.8)] animate-[scan_2s_ease-in-out_infinite]" />
               </div>
             </div>
-            <h2 className="text-2xl font-bold text-white mb-2">
-              {MATCH_ORDER.some((kind) => matches[kind].status === "generating")
-                ? "Creating Match"
-                : coupleStatus === "generating"
-                  ? "Creating Couple Scene"
-                  : "Analyzing Profile"}
-            </h2>
-            <p className="text-slate-400 animate-pulse text-center">
-              {MATCH_ORDER.some((kind) => matches[kind].status === "generating")
-                ? "Generating one match direction based on your saved style profile..."
-                : coupleStatus === "generating"
-                  ? "Blending your uploaded portrait and selected partner into one shared scene..."
-                  : "Extracting style, mood, palette, and lighting..."}
-            </p>
+            <div className="relative z-10 max-w-lg rounded-3xl border border-slate-800 bg-slate-900/80 px-6 py-5 text-center backdrop-blur-xl shadow-2xl shadow-fuchsia-950/20">
+              <h2 className="text-2xl font-bold text-white mb-2">
+                {MATCH_ORDER.some((kind) => matches[kind].status === "generating")
+                  ? "Creating Match"
+                  : coupleStatus === "generating"
+                    ? "Creating Couple Scene"
+                    : "Analyzing Profile"}
+              </h2>
+              <p className="text-slate-300 animate-pulse text-center">
+                {MATCH_ORDER.some((kind) => matches[kind].status === "generating")
+                  ? "Generating one match direction based on your saved style profile..."
+                  : coupleStatus === "generating"
+                    ? "Blending your uploaded portrait and selected partner into one shared scene..."
+                    : "Extracting style, mood, palette, and lighting..."}
+              </p>
+            </div>
 
             <style jsx>{`
               @keyframes scan {
@@ -632,10 +669,10 @@ export default function App() {
                 </div>
 
                 <button
-                  onClick={resetApp}
+                  onClick={credits <= 0 ? startNewSession : resetApp}
                   className="px-4 py-2 rounded-full bg-slate-800 hover:bg-slate-700 text-sm font-medium transition-colors"
                 >
-                  Start Over
+                  {credits <= 0 ? "Start New Session" : "Start Over"}
                 </button>
               </div>
 
@@ -648,6 +685,18 @@ export default function App() {
                     label="Palette"
                     value={profile.color_palette.join(", ")}
                   />
+                </div>
+              ) : null}
+
+              {credits <= 0 ? (
+                <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                  <p className="text-sm font-medium text-amber-300">
+                    This demo session is out of credits.
+                  </p>
+                  <p className="mt-1 text-xs text-amber-200/80">
+                    Use <span className="font-semibold">New Session</span> to reset
+                    credits and keep testing.
+                  </p>
                 </div>
               ) : null}
             </div>
