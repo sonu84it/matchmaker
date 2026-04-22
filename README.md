@@ -212,6 +212,8 @@ SELECT
 FROM `YOUR_PROJECT.pairmuse_analytics.events`;
 ```
 
+A reusable query pack is included at [sql/bigquery-dashboard-queries.sql](/Users/sonu/Documents/matchmaking/sql/bigquery-dashboard-queries.sql).
+
 ## Storage Layout
 
 ```text
