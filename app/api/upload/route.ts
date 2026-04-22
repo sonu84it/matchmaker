@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { trackAnalyticsEvent } from "@/lib/analytics";
 import { createSignedReadUrl, uploadBufferToGcs } from "@/lib/gcs";
 import { saveUpload } from "@/lib/data-store";
 import { getSessionIdFromHeaders } from "@/lib/session";
@@ -57,6 +58,18 @@ export async function POST(request: NextRequest) {
       createdAt: Date.now(),
     });
 
+    await trackAnalyticsEvent({
+      eventName: "image_uploaded",
+      sessionId,
+      uploadId,
+      route: "/api/upload",
+      status: "success",
+      metadata: {
+        mimeType: file.type,
+        fileSize: file.size,
+      },
+    });
+
     return NextResponse.json({
       uploadId,
       storagePath,
@@ -65,6 +78,12 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to upload image.";
+    await trackAnalyticsEvent({
+      eventName: "api_error",
+      route: "/api/upload",
+      status: "error",
+      errorMessage: message,
+    });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

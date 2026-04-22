@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeImageFromStorage } from "@/lib/ai/analyze";
+import { trackAnalyticsEvent } from "@/lib/analytics";
 import { generatePartnerMatch, PARTNER_VARIANTS } from "@/lib/ai/generate";
 import { getSessionIdFromHeaders } from "@/lib/session";
 import {
@@ -66,6 +67,23 @@ export async function POST(request: NextRequest) {
       createdAt: Date.now(),
     });
 
+    await trackAnalyticsEvent({
+      eventName: "partner_generated",
+      sessionId,
+      uploadId,
+      generationId,
+      partnerId: match.id,
+      matchKind: kind,
+      route: "/api/generate",
+      status: "success",
+      usageCount: usage,
+      remainingGenerations: Math.max(0, MAX_GENERATIONS - usage),
+      metadata: {
+        title: match.title,
+        tag: match.tag,
+      },
+    });
+
     return NextResponse.json({
       generationId,
       match,
@@ -75,6 +93,12 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to generate matches.";
+    await trackAnalyticsEvent({
+      eventName: "api_error",
+      route: "/api/generate",
+      status: "error",
+      errorMessage: message,
+    });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

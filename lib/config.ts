@@ -16,6 +16,12 @@ export const env = {
     "FIRESTORE_COLLECTION_PREFIX",
     "pairmuse",
   ),
+  bigQueryAnalyticsEnabled: valueOrUndefined(
+    "BIGQUERY_ANALYTICS_ENABLED",
+    "false",
+  ),
+  bigQueryDataset: valueOrUndefined("BIGQUERY_DATASET"),
+  bigQueryTable: valueOrUndefined("BIGQUERY_TABLE"),
   appBaseUrl: process.env.NEXT_PUBLIC_APP_URL,
 };
 

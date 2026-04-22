@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@google-cloud/bigquery": "^8.1.1",
     "@google-cloud/firestore": "^7.11.2",
     "@google-cloud/storage": "^7.16.0",
     "clsx": "^2.1.1",

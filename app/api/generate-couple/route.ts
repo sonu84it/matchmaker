@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateCoupleImage } from "@/lib/ai/generate";
+import { trackAnalyticsEvent } from "@/lib/analytics";
 import { getSessionIdFromHeaders } from "@/lib/session";
 import {
   findPartnerMatch,
@@ -79,6 +80,22 @@ export async function POST(request: NextRequest) {
       createdAt: Date.now(),
     });
 
+    await trackAnalyticsEvent({
+      eventName: "couple_generated",
+      sessionId,
+      uploadId,
+      generationId,
+      partnerId: match.id,
+      scene,
+      route: "/api/generate-couple",
+      status: "success",
+      usageCount: usage,
+      remainingGenerations: Math.max(0, MAX_GENERATIONS - usage),
+      metadata: {
+        partnerTag: match.tag,
+      },
+    });
+
     return NextResponse.json({
       ...couple,
       remainingGenerations: Math.max(0, MAX_GENERATIONS - usage),
@@ -86,6 +103,12 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to generate couple image.";
+    await trackAnalyticsEvent({
+      eventName: "api_error",
+      route: "/api/generate-couple",
+      status: "error",
+      errorMessage: message,
+    });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
